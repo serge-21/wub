@@ -103,74 +103,88 @@ function setup() {
   }
 }
 
-function draw() {
-  background('#fffaf8');
-  
-  // Calculate needle speed for thread physics
+function updateNeedleSpeed() {
   needleSpeed = dist(mouseX, mouseY, prevMouseX, prevMouseY);
-  
-  // Update thread physics
-  updateThreadPhysics();
-  
-  // Update previous mouse position
   prevMouseX = mouseX;
   prevMouseY = mouseY;
+}
 
-  // Draw thread path
+function drawSewnPath() {
   stroke("red");
   strokeWeight(2);
   noFill();
-  
-  if (sewnPath.length > 0) {
-    // Draw the complete sewn path as connected lines
-    beginShape();
-    noFill();
-    for (let p of sewnPath) {
-      vertex(p.x, p.y);
-    }
-    
-    // Add direct line from last sewn stitch to current needle eye position
-    let needleX = needleFollowsMouse ? mouseX : fixedNeedleX;
-    let needleY = needleFollowsMouse ? mouseY : fixedNeedleY;
-    let eyePos = getNeedleEyePosition(needleX, needleY);
-    vertex(eyePos.x, eyePos.y);
-    
-    endShape();
-    
-    // Draw dangling thread from first sewn stitch (no connection back to needle)
-    let firstPoint = sewnPath[0];
-    drawPureDanglingThread(firstPoint.x, firstPoint.y);
-  } else {
-    // Before any stitches are sewn, thread dangles from needle eye
-    let needleX = needleFollowsMouse ? mouseX : fixedNeedleX;
-    let needleY = needleFollowsMouse ? mouseY : fixedNeedleY;
-    let eyePos = getNeedleEyePosition(needleX, needleY);
-    drawDanglingThread(eyePos.x, eyePos.y);
+
+  beginShape();
+  for (let p of sewnPath) {
+    vertex(p.x, p.y);
   }
 
-  // Draw stitches
+  // Connect last sewn stitch to needle eye
+  let { x: needleX, y: needleY } = getCurrentNeedleEyePos();
+  vertex(needleX, needleY);
+
+  endShape();
+
+  // Draw dangling thread from first stitch
+  let firstPoint = sewnPath[0];
+  drawPureDanglingThread(firstPoint.x, firstPoint.y);
+}
+
+function drawInitialDanglingThread() {
+  // Thread dangles from needle before any stitches
+  let { x: needleX, y: needleY } = getCurrentNeedleEyePos();
+  drawDanglingThread(needleX, needleY);
+}
+
+function drawStitches() {
   for (let s of stitches) {
     stroke(s.done ? "red" : "#ddd");
     strokeWeight(3);
-    // Draw small lines as stitches
+
     let angle = s.angle || 0;
     let lineLength = 12;
-    line(s.x - cos(angle) * lineLength/2, s.y - sin(angle) * lineLength/2, 
-         s.x + cos(angle) * lineLength/2, s.y + sin(angle) * lineLength/2);
+    line(
+      s.x - cos(angle) * lineLength / 2, s.y - sin(angle) * lineLength / 2,
+      s.x + cos(angle) * lineLength / 2, s.y + sin(angle) * lineLength / 2
+    );
+  }
+}
+
+function drawCompletionMessage() {
+  fill("red");
+  textAlign(CENTER, CENTER);
+  textSize(48);
+  textStyle(BOLD);
+  text("i lob you", centerX, centerY);
+}
+
+function getCurrentNeedleEyePos() {
+  let needleX = needleFollowsMouse ? mouseX : fixedNeedleX;
+  let needleY = needleFollowsMouse ? mouseY : fixedNeedleY;
+  return getNeedleEyePosition(needleX, needleY);
+}
+
+function draw() {
+  background('#fffaf8');
+
+  updateNeedleSpeed();
+  updateThreadPhysics();
+
+  if (sewnPath.length > 0) {
+    drawSewnPath();
+  } else {
+    drawInitialDanglingThread();
   }
 
-  // Draw needle image
+  drawStitches();
+
+  // Draw needle
   let needleX = needleFollowsMouse ? mouseX : fixedNeedleX;
   let needleY = needleFollowsMouse ? mouseY : fixedNeedleY;
   drawNeedle(needleX, needleY);
-  
-  // Draw completion message
+
   if (heartCompleted) {
-    fill("red");
-    textAlign(CENTER, CENTER);
-    textSize(48);
-    textStyle(BOLD);
-    text("i lob you", centerX, centerY);
+    drawCompletionMessage();
   }
 }
 
@@ -238,60 +252,72 @@ function mouseDragged() {
   }
 }
 
+function enableNeedleFollow() {
+  needleFollowsMouse = true;
+  document.body.style.cursor = 'none'; // Hide cursor
+  console.log("ESC mode disabled - needle now follows mouse");
+}
+
+function calculateDragDistance(path) {
+  let distance = 0;
+  for (let i = 1; i < path.length; i++) {
+    distance += dist(path[i - 1].x, path[i - 1].y, path[i].x, path[i].y);
+  }
+  return distance;
+}
+
+function trySewStitches() {
+  let stitchedAny = false;
+
+  for (let s of stitches) {
+    if (!s.done && totalThread > 0 && didNeedleGoThroughStitch(s)) {
+      // Sew stitch
+      s.done = true;
+      usedStitches++;
+      totalThread -= 20;
+      sewnPath.push({ x: s.x, y: s.y });
+      stitchedAny = true;
+
+      console.log("Stitch sewn by dragging through, total stitches:", usedStitches);
+    }
+  }
+
+  // Check completion
+  if (usedStitches === stitches.length) {
+    heartCompleted = true;
+  }
+
+  return stitchedAny;
+}
+
+function resetDragTracking() {
+  isDragging = false;
+  dragPath = [];
+}
+
 function mouseReleased() {
-  let needleX = needleFollowsMouse ? mouseX : fixedNeedleX;
-  let needleY = needleFollowsMouse ? mouseY : fixedNeedleY;
-  
   if (!needleFollowsMouse) {
-    // ESC mode is enabled (needle is fixed) - clicking disables ESC mode
-    needleFollowsMouse = true;
-    document.body.style.cursor = 'none'; // Hide mouse cursor
-    console.log("ESC mode disabled - needle now follows mouse");
-  } else {
-    // ESC mode is disabled (needle follows mouse) - check for drag-through sewing
-    if (isDragging) {
-      // Calculate total drag distance
-      let dragDistance = 0;
-      for (let i = 1; i < dragPath.length; i++) {
-        dragDistance += dist(dragPath[i-1].x, dragPath[i-1].y, dragPath[i].x, dragPath[i].y);
-      }
-      
-      // Only attempt sewing if user dragged far enough
-      if (dragDistance >= dragMinDistance) {
-        // Check if drag path went through any stitch
-        let stitchedAny = false;
-        
-        for (let s of stitches) {
-          if (!s.done && totalThread > 0) {
-            // Check if needle was dragged through this stitch
-            if (needleDraggedThroughStitch(s)) {
-              // Sew the stitch
-              s.done = true;
-              usedStitches++;
-              totalThread -= 20;
-              sewnPath.push({ x: s.x, y: s.y });
-              stitchedAny = true;
-              
-              console.log("Stitch sewn by dragging through! Total stitches:", usedStitches);
-            }
-          }
-        }
-        
-        // Check if heart is completed
-        if (usedStitches === stitches.length) {
-          heartCompleted = true;
-        }
-        
-        if (!stitchedAny && dragDistance >= dragMinDistance) {
-          console.log("Dragged", Math.round(dragDistance), "pixels, but didn't go through any stitch");
-        }
+    enableNeedleFollow();
+    return;
+  }
+
+  // Needle follows mouse → check for drag sewing
+  if (isDragging) {
+    const dragDistance = calculateDragDistance(dragPath);
+
+    if (dragDistance >= dragMinDistance) {
+      const stitchedAny = trySewStitches();
+
+      if (!stitchedAny) {
+        console.log(
+          "Dragged", Math.round(dragDistance), 
+          "pixels, but didn't go through any stitch"
+        );
       }
     }
-    
-    // Reset drag tracking
-    isDragging = false;
-    dragPath = [];
   }
+
+  resetDragTracking();
 }
 
 function keyPressed() {
@@ -325,16 +351,14 @@ function getNeedleEyePosition(needleX, needleY) {
   return { x: eyeX, y: eyeY };
 }
 
-function needleDraggedThroughStitch(stitch) {
-  // Check if the drag path went through the stitch
-  let stitchRadius = 15; // Detection radius around stitch
+function didNeedleGoThroughStitch(stitch) {
+  let stitchRadius = 15;
   
   // Check each segment of the drag path
   for (let i = 1; i < dragPath.length; i++) {
     let p1 = dragPath[i-1];
     let p2 = dragPath[i];
     
-    // Check if line segment passes close enough to stitch
     let distToStitch = distanceToLineSegment(stitch.x, stitch.y, p1.x, p1.y, p2.x, p2.y);
     
     if (distToStitch <= stitchRadius) {
@@ -368,133 +392,120 @@ function distanceToLineSegment(px, py, x1, y1, x2, y2) {
   return dist(px, py, closestX, closestY);
 }
 
-function updateThreadPhysics() {
-  // Determine what the first thread segment should follow
-  let anchorX, anchorY;
+function getThreadAnchor() {
   if (sewnPath.length > 0) {
-    // If stitches have been sewn, thread dangles from first sewn stitch
-    anchorX = sewnPath[0].x;
-    anchorY = sewnPath[0].y;
+    // Anchor from first sewn stitch
+    return { x: sewnPath[0].x, y: sewnPath[0].y };
   } else {
-    // If no stitches sewn yet, thread dangles from needle eye
+    // Anchor from needle eye
     let needleX = needleFollowsMouse ? mouseX : fixedNeedleX;
     let needleY = needleFollowsMouse ? mouseY : fixedNeedleY;
-    let eyePos = getNeedleEyePosition(needleX, needleY);
-    anchorX = eyePos.x;
-    anchorY = eyePos.y;
+    return getNeedleEyePosition(needleX, needleY);
   }
-  
-  // Update thread segments with physics
+}
+
+function applyPhysics(segment) {
+  // Store previous
+  let tempX = segment.x;
+  let tempY = segment.y;
+
+  // Verlet integration with damping + gravity
+  segment.x += (segment.x - segment.prevX) * 0.6;
+  segment.y += (segment.y - segment.prevY) * 0.6;
+  segment.y += 0.4; // gravity
+
+  // Update previous position
+  segment.prevX = tempX;
+  segment.prevY = tempY;
+}
+
+function constrainSegment(segment, targetX, targetY) {
+  let dx = targetX - segment.x;
+  let dy = targetY - segment.y;
+  let distance = sqrt(dx * dx + dy * dy);
+
+  if (distance > segmentLength) {
+    segment.x = targetX - (dx / distance) * segmentLength;
+    segment.y = targetY - (dy / distance) * segmentLength;
+  }
+}
+
+function updateThreadPhysics() {
+  const anchor = getThreadAnchor();
+
   for (let i = 0; i < threadSegments.length; i++) {
     let segment = threadSegments[i];
-    
-    // Store previous position for physics
-    let tempX = segment.x;
-    let tempY = segment.y;
-    
-    // Apply simple physics (verlet integration)
-    segment.x += (segment.x - segment.prevX) * 0.6; // Damping
-    segment.y += (segment.y - segment.prevY) * 0.6;
-    segment.y += 0.4; // Gravity
-    
-    // Update previous position
-    segment.prevX = tempX;
-    segment.prevY = tempY;
-    
-    // Constraint to anchor point or previous segment
+
+    applyPhysics(segment);
+
     if (i === 0) {
-      // First segment follows the anchor (needle or first stitch)
-      let dx = anchorX - segment.x;
-      let dy = anchorY - segment.y;
-      let distance = sqrt(dx * dx + dy * dy);
-      if (distance > segmentLength) {
-        segment.x = anchorX - (dx / distance) * segmentLength;
-        segment.y = anchorY - (dy / distance) * segmentLength;
-      }
+      // First segment constrained to anchor
+      constrainSegment(segment, anchor.x, anchor.y);
     } else {
-      // Other segments follow the previous segment
-      let prevSegment = threadSegments[i - 1];
-      let dx = prevSegment.x - segment.x;
-      let dy = prevSegment.y - segment.y;
-      let distance = sqrt(dx * dx + dy * dy);
-      if (distance > segmentLength) {
-        segment.x = prevSegment.x - (dx / distance) * segmentLength;
-        segment.y = prevSegment.y - (dy / distance) * segmentLength;
-      }
+      // Constrain to previous segment
+      let prev = threadSegments[i - 1];
+      constrainSegment(segment, prev.x, prev.y);
     }
   }
 }
 
 function drawDanglingThread(startX, startY) {
-  // Draw thread segments - fully visible, no fading
-  let prevX = startX;
-  let prevY = startY;
-  
-  stroke("red");
-  strokeWeight(2);
-  
-  for (let segment of threadSegments) {
-    line(prevX, prevY, segment.x, segment.y);
-    prevX = segment.x;
-    prevY = segment.y;
-  }
-  
-  // Only draw final segment back to needle if we're connecting from a sewn stitch
-  // (not when thread is just dangling from needle)
+  let { endX, endY } = drawThreadSegments(startX, startY, numThreadSegments);
+
+  // Check if we need to connect back to needle
   let needleX = needleFollowsMouse ? mouseX : fixedNeedleX;
   let needleY = needleFollowsMouse ? mouseY : fixedNeedleY;
   let eyePos = getNeedleEyePosition(needleX, needleY);
-  
+
   if (startX !== eyePos.x || startY !== eyePos.y) {
-    // We're connecting from a sewn stitch, so draw line to needle eye
-    line(prevX, prevY, eyePos.x, eyePos.y);
+    line(endX, endY, eyePos.x, eyePos.y);
   }
-  // If startX,startY == needle eye position, thread just dangles (no loop back to needle)
 }
 
 function drawPureDanglingThread(startX, startY) {
-  // Calculate smooth thread length based on stitching progress
+  // Progress ratio
   let totalStitches = stitches.length;
   let stitchesRemaining = totalStitches - usedStitches;
-  let threadProgress = stitchesRemaining / totalStitches; // 1.0 = full thread, 0.0 = no thread
-  
-  // Calculate exact number of segments to show (with decimal precision)
+  let threadProgress = stitchesRemaining / totalStitches;
+
+  // Segment count + partial
   let exactSegmentsToShow = threadProgress * numThreadSegments;
   let fullSegmentsToShow = Math.floor(exactSegmentsToShow);
-  let partialSegmentRatio = exactSegmentsToShow - fullSegmentsToShow; // How much of the last segment to show
-  
+  let partialRatio = exactSegmentsToShow - fullSegmentsToShow;
+
+  // Draw truncated thread (no needle connection)
+  drawThreadSegments(startX, startY, fullSegmentsToShow, partialRatio);
+}
+
+function drawThreadSegments(startX, startY, segmentsToDraw, partialRatio = 0) {
   let prevX = startX;
   let prevY = startY;
-  
+
   stroke("red");
   strokeWeight(2);
-  
+
   // Draw full segments
-  for (let i = 0; i < fullSegmentsToShow; i++) {
+  for (let i = 0; i < segmentsToDraw; i++) {
     let segment = threadSegments[i];
     line(prevX, prevY, segment.x, segment.y);
     prevX = segment.x;
     prevY = segment.y;
   }
-  
-  // Draw partial segment if there's one to show
-  if (partialSegmentRatio > 0 && fullSegmentsToShow < numThreadSegments) {
-    let segment = threadSegments[fullSegmentsToShow];
-    
-    // Calculate partial endpoint by interpolating between previous point and segment point
-    let partialX = lerp(prevX, segment.x, partialSegmentRatio);
-    let partialY = lerp(prevY, segment.y, partialSegmentRatio);
-    
+
+  // Draw partial segment if needed
+  if (partialRatio > 0 && segmentsToDraw < numThreadSegments) {
+    let segment = threadSegments[segmentsToDraw];
+    let partialX = lerp(prevX, segment.x, partialRatio);
+    let partialY = lerp(prevY, segment.y, partialRatio);
     line(prevX, prevY, partialX, partialY);
+
+    prevX = partialX;
+    prevY = partialY;
   }
-  // No connection back to needle - thread just dangles freely
+
+  return { endX: prevX, endY: prevY }; // Return final position
 }
 
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-  centerX = width / 2;
-  centerY = height / 2;
-}
 </script>
 </body>
 </html>
