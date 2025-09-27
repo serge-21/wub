@@ -212,6 +212,68 @@ function drawCompletionMessage() {
   text("i lob you", centerX, centerY);
 }
 
+function drawEscapeHint() {
+  if (!needleFollowsMouse) {
+    // Only show when needle is fixed (ESC mode active)
+    push();
+    
+    // Position in top-right corner with some padding
+    let hintX = width - 60;
+    let hintY = 40;
+    
+    // Hand-drawn pencil style rectangle
+    stroke(80, 80, 80, 180);
+    strokeWeight(1.5);
+    noFill();
+    
+    // Draw rough, sketchy rectangle lines with slight imperfections
+    let x1 = hintX - 25, y1 = hintY - 15;
+    let x2 = hintX + 25, y2 = hintY + 15;
+    
+    // Top line (slightly wavy)
+    beginShape();
+    noFill();
+    vertex(x1, y1 + random(-0.5, 0.5));
+    vertex(x1 + 12, y1 + random(-0.8, 0.8));
+    vertex(x1 + 25, y1 + random(-0.5, 0.5));
+    vertex(x2, y1 + random(-0.5, 0.5));
+    endShape();
+    
+    // Right line
+    beginShape();
+    vertex(x2 + random(-0.5, 0.5), y1);
+    vertex(x2 + random(-0.8, 0.8), y1 + 8);
+    vertex(x2 + random(-0.8, 0.8), y1 + 15);
+    vertex(x2 + random(-0.5, 0.5), y2);
+    endShape();
+    
+    // Bottom line
+    beginShape();
+    vertex(x2, y2 + random(-0.5, 0.5));
+    vertex(x2 - 12, y2 + random(-0.8, 0.8));
+    vertex(x2 - 25, y2 + random(-0.5, 0.5));
+    vertex(x1, y2 + random(-0.5, 0.5));
+    endShape();
+    
+    // Left line
+    beginShape();
+    vertex(x1 + random(-0.5, 0.5), y2);
+    vertex(x1 + random(-0.8, 0.8), y2 - 8);
+    vertex(x1 + random(-0.8, 0.8), y2 - 15);
+    vertex(x1 + random(-0.5, 0.5), y1);
+    endShape();
+    
+    // ESC text in pencil style
+    fill(60, 60, 60);
+    textAlign(CENTER, CENTER);
+    textSize(12);
+    textStyle(NORMAL);
+    text("ESC", hintX, hintY);
+    
+    pop();
+  }
+}
+
 function getNeedleCenterFromTip(tipX, tipY) {
   // Calculate needle center position from tip position
   // Tip is at the front, so center is needleLength/2 back from tip
@@ -249,6 +311,9 @@ function draw() {
   let tipY = needleFollowsMouse ? mouseY : fixedNeedleY;
   let { x: needleCenterX, y: needleCenterY } = getNeedleCenterFromTip(tipX, tipY);
   drawNeedle(needleCenterX, needleCenterY);
+
+  // Draw ESC hint when needle is fixed
+  drawEscapeHint();
 
   if (heartCompleted) {
     drawCompletionMessage();
