@@ -36,6 +36,16 @@ let prevMouseY = 0;
 let needleSpeed = 0;
 let mouseDownTime = 0;
 
+// Needle rotation tracking
+let prevNeedleX = 0;
+let prevNeedleY = 0;
+let needleAngle = 0;
+let targetNeedleAngle = 0;
+let angleSmoothing = 0.08; // Lower = smoother, higher = more responsive
+
+// Needle dimensions for positioning
+let needleLength = 40; // Distance from center to tip
+
 // Thread physics
 let threadSegments = [];
 let numThreadSegments = 8;
@@ -89,6 +99,14 @@ function setup() {
   fixedNeedleY = heartBottomY + 50; // Slightly below the heart
   needleFollowsMouse = false; // Start with needle fixed (ESC mode enabled)
   
+  // Initialize needle tracking variables
+  prevNeedleX = fixedNeedleX;
+  prevNeedleY = fixedNeedleY;
+  needleAngle = 0; // Start pointing horizontally to the right
+  targetNeedleAngle = 0;
+  prevMouseX = mouseX;
+  prevMouseY = mouseY;
+  
   // Show mouse cursor since needle is fixed
   document.body.style.cursor = 'default';
   
@@ -105,6 +123,42 @@ function setup() {
 
 function updateNeedleSpeed() {
   needleSpeed = dist(mouseX, mouseY, prevMouseX, prevMouseY);
+  
+  // Calculate mouse movement direction for needle angle
+  let mouseDeltaX = mouseX - prevMouseX;
+  let mouseDeltaY = mouseY - prevMouseY;
+  
+  // Calculate needle angle based on mouse movement direction
+  let newTargetAngle;
+  
+  if (abs(mouseDeltaX) > 1.0 || abs(mouseDeltaY) > 1.0) {
+    // Use movement direction when mouse is moving
+    newTargetAngle = atan2(mouseDeltaY, mouseDeltaX);
+  } else {
+    // When not moving much, keep current target angle
+    newTargetAngle = targetNeedleAngle;
+  }
+  
+  // Handle angle wrapping (shortest path between angles)
+  let targetAngleDiff = newTargetAngle - targetNeedleAngle;
+  
+  // Normalize angle difference to [-PI, PI]
+  while (targetAngleDiff > PI) targetAngleDiff -= TWO_PI;
+  while (targetAngleDiff < -PI) targetAngleDiff += TWO_PI;
+  
+  targetNeedleAngle += targetAngleDiff;
+  
+  // Smoothly interpolate toward target angle with easing
+  let currentAngleDiff = targetNeedleAngle - needleAngle;
+  
+  // Normalize angle difference to [-PI, PI] for smooth interpolation
+  while (currentAngleDiff > PI) currentAngleDiff -= TWO_PI;
+  while (currentAngleDiff < -PI) currentAngleDiff += TWO_PI;
+  
+  // Use eased interpolation for even smoother movement
+  let easedSmoothing = angleSmoothing * (1 - Math.pow(1 - Math.abs(currentAngleDiff) / PI, 2));
+  needleAngle += currentAngleDiff * easedSmoothing;
+  
   prevMouseX = mouseX;
   prevMouseY = mouseY;
 }
@@ -158,10 +212,22 @@ function drawCompletionMessage() {
   text("i lob you", centerX, centerY);
 }
 
+function getNeedleCenterFromTip(tipX, tipY) {
+  // Calculate needle center position from tip position
+  // Tip is at the front, so center is needleLength/2 back from tip
+  let centerX = tipX - cos(needleAngle) * (needleLength / 2);
+  let centerY = tipY - sin(needleAngle) * (needleLength / 2);
+  return { x: centerX, y: centerY };
+}
+
 function getCurrentNeedleEyePos() {
-  let needleX = needleFollowsMouse ? mouseX : fixedNeedleX;
-  let needleY = needleFollowsMouse ? mouseY : fixedNeedleY;
-  return getNeedleEyePosition(needleX, needleY);
+  let tipX = needleFollowsMouse ? mouseX : fixedNeedleX;
+  let tipY = needleFollowsMouse ? mouseY : fixedNeedleY;
+  
+  // Calculate center from tip position
+  let { x: centerX, y: centerY } = getNeedleCenterFromTip(tipX, tipY);
+  
+  return getNeedleEyePosition(centerX, centerY);
 }
 
 function draw() {
@@ -178,10 +244,11 @@ function draw() {
 
   drawStitches();
 
-  // Draw needle
-  let needleX = needleFollowsMouse ? mouseX : fixedNeedleX;
-  let needleY = needleFollowsMouse ? mouseY : fixedNeedleY;
-  drawNeedle(needleX, needleY);
+  // Draw needle (cursor is at tip, so calculate center position)
+  let tipX = needleFollowsMouse ? mouseX : fixedNeedleX;
+  let tipY = needleFollowsMouse ? mouseY : fixedNeedleY;
+  let { x: needleCenterX, y: needleCenterY } = getNeedleCenterFromTip(tipX, tipY);
+  drawNeedle(needleCenterX, needleCenterY);
 
   if (heartCompleted) {
     drawCompletionMessage();
@@ -190,9 +257,8 @@ function draw() {
 
 function drawNeedle(x, y) {
   push();
-  let angle = atan2(mouseY - centerY, mouseX - centerX);
   translate(x, y);
-  rotate(angle);
+  rotate(needleAngle);
   
   // Draw needle using the loaded image
   if (needleImg) {
@@ -338,15 +404,14 @@ function keyPressed() {
 
 function getNeedleEyePosition(needleX, needleY) {
   // Calculate the position of the needle's eye (where thread should attach)
-  let angle = atan2(mouseY - centerY, mouseX - centerX);
   
   // The needle eye is at the back end of the needle
   // Since the needle image is 80 pixels wide and centered, the eye is about 35-40 pixels back
   let eyeOffset = -35; // Distance from center to eye (negative = towards the back)
   
   // Calculate eye position based on needle rotation
-  let eyeX = needleX + cos(angle) * eyeOffset;
-  let eyeY = needleY + sin(angle) * eyeOffset;
+  let eyeX = needleX + cos(needleAngle) * eyeOffset;
+  let eyeY = needleY + sin(needleAngle) * eyeOffset;
   
   return { x: eyeX, y: eyeY };
 }
@@ -397,10 +462,11 @@ function getThreadAnchor() {
     // Anchor from first sewn stitch
     return { x: sewnPath[0].x, y: sewnPath[0].y };
   } else {
-    // Anchor from needle eye
-    let needleX = needleFollowsMouse ? mouseX : fixedNeedleX;
-    let needleY = needleFollowsMouse ? mouseY : fixedNeedleY;
-    return getNeedleEyePosition(needleX, needleY);
+    // Anchor from needle eye (cursor is at tip, so calculate center first)
+    let tipX = needleFollowsMouse ? mouseX : fixedNeedleX;
+    let tipY = needleFollowsMouse ? mouseY : fixedNeedleY;
+    let { x: centerX, y: centerY } = getNeedleCenterFromTip(tipX, tipY);
+    return getNeedleEyePosition(centerX, centerY);
   }
 }
 
@@ -453,9 +519,10 @@ function drawDanglingThread(startX, startY) {
   let { endX, endY } = drawThreadSegments(startX, startY, numThreadSegments);
 
   // Check if we need to connect back to needle
-  let needleX = needleFollowsMouse ? mouseX : fixedNeedleX;
-  let needleY = needleFollowsMouse ? mouseY : fixedNeedleY;
-  let eyePos = getNeedleEyePosition(needleX, needleY);
+  let tipX = needleFollowsMouse ? mouseX : fixedNeedleX;
+  let tipY = needleFollowsMouse ? mouseY : fixedNeedleY;
+  let { x: centerX, y: centerY } = getNeedleCenterFromTip(tipX, tipY);
+  let eyePos = getNeedleEyePosition(centerX, centerY);
 
   if (startX !== eyePos.x || startY !== eyePos.y) {
     line(endX, endY, eyePos.x, eyePos.y);
